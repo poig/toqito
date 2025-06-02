@@ -80,16 +80,73 @@ def is_ppt(mat: np.ndarray, sys: int = 2, dim: int | list[int] = None, tol: floa
              not.
 
     """
-    eps = np.finfo(float).eps
+    if tol is None:
+        tol = 1e-8  # Match is_separable's default
 
-    sqrt_rho_dims = np.round(np.sqrt(list(mat.shape)))
-    sqrt_rho_dims = np.int_(sqrt_rho_dims)
+    if not isinstance(mat, np.ndarray) or mat.ndim != 2 or mat.shape[0] != mat.shape[1]:
+        raise ValueError("Input 'mat' must be a square 2D NumPy array.")
+
+    mat_dim_total = mat.shape[0]
+    processed_dim = None
 
     if dim is None:
-        dim = [
-            [sqrt_rho_dims[0], sqrt_rho_dims[0]],
-            [sqrt_rho_dims[1], sqrt_rho_dims[1]],
-        ]
-    if tol is None:
-        tol = np.sqrt(eps)
-    return is_positive_semidefinite(partial_transpose(mat, [sys - 1], dim), tol)
+        sqrt_len = np.sqrt(mat_dim_total)
+        if np.isclose(sqrt_len, np.round(sqrt_len)):
+            d_sub = int(np.round(sqrt_len))
+            processed_dim = [d_sub, d_sub]
+        else:
+            raise ValueError(
+                "If `dim` is None, matrix dimension must be a perfect square "
+                "to infer symmetric bipartite dimensions. Please provide `dim`."
+            )
+    elif isinstance(dim, int):
+        if mat_dim_total % dim != 0:
+            raise ValueError(
+                f"If `dim` is a scalar ({dim}), it must evenly divide matrix total dimension ({mat_dim_total})."
+            )
+        processed_dim = [dim, mat_dim_total // dim]
+    elif isinstance(dim, (list, np.ndarray)):
+        # Allow dim to be a single int in a list, e.g. [3] for a 9x9 matrix -> [3,3]
+        if hasattr(dim, "__len__") and len(dim) == 1 and isinstance(dim[0], (int, np.integer)):
+            d_A = int(dim[0])
+            if (
+                mat_dim_total % d_A != 0
+            ):  # This check is only valid if we expect d_A * d_A = mat_dim_total or d_A * X = mat_dim_total
+                # For [3] and 9x9, it implies [3,3]
+                if d_A * d_A == mat_dim_total:
+                    processed_dim = [d_A, d_A]
+                elif mat_dim_total % d_A == 0:  # Infer second dim if first divides total
+                    processed_dim = [d_A, mat_dim_total // d_A]
+                else:
+                    raise ValueError(
+                        f"If `dim` is [{d_A}], it's ambiguous or does not properly factor matrix "
+                        + "total dimension ({mat_dim_total})."
+                    )
+            else:  # d_A divides total_dim
+                processed_dim = [d_A, mat_dim_total // d_A]
+
+        elif hasattr(dim, "__len__") and len(dim) == 2:
+            try:
+                processed_dim = [int(d) for d in dim]
+            except ValueError as e_val:
+                raise ValueError(f"Elements of `dim` must be integers. Original error: {e_val}") from e_val
+
+            if processed_dim[0] * processed_dim[1] != mat_dim_total:
+                raise ValueError(
+                    f"Product of dimensions in `dim` {processed_dim} ({processed_dim[0] * processed_dim[1]}) "
+                    f"does not match matrix dimension {mat_dim_total}."
+                )
+        else:
+            raise ValueError("`dim` must be None, an int, a list/array of one int, or a list/array of two ints.")
+    else:
+        raise TypeError(f"`dim` argument has an invalid type: {type(dim)}.")
+
+    # Validate sys argument (expecting 1-based: 1 or 2 for bipartite)
+    if sys not in {1, 2}:
+        raise ValueError(
+            f"For bipartite PPT check, 1-indexed `sys` must be 1 (first system) or 2 (second system). Got sys={sys}"
+        )
+
+    # Convert 1-based sys from user to 0-indexed list for partial_transpose
+    pt_mat = partial_transpose(mat, sys=[sys - 1], dim=processed_dim)
+    return is_positive_semidefinite(pt_mat, atol=tol, rtol=tol)

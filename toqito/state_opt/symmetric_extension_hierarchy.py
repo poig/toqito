@@ -191,6 +191,13 @@ def symmetric_extension_hierarchy(
 
     objective = cvxpy.Maximize(cvxpy.real(sum(obj_func)))
     problem = cvxpy.Problem(objective, constraints)
-    sol_default = problem.solve()
+    problem.solve(solver=cvxpy.SCS, eps=1e-7, verbose=False)
+    # Check if dim is [2,4] or [3,3] to be specific for these tests
+    # is_entangled_test_rho_hier = (states[0].shape == (9,9) and np.isclose(states[0][0,1], 0.07444444))
+    # if is_entangled_test_rho_hier:
+    #     print(f"\nDEBUG symmetric_extension_hierarchy (ENTANGLED TEST STATE):")
+    #     print(f"  Problem status: {problem.status}")
+    #     print(f"  Optimal value (problem.value / sdp_val): {problem.value}")
 
+    sol_default = problem.value
     return sol_default
